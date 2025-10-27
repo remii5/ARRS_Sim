@@ -9,7 +9,7 @@ using System.Collections.Generic;
 public class VoxelGrid : MonoBehaviour
 {
     [Header("Grid Dimensions")]
-    public Vector3 origin = Vector3.zero; // world-space origin (corner or center depending on use)
+    public Vector3 origin = Vector3.zero;
     public int sizeX = 100;
     public int sizeY = 20;
     public int sizeZ = 60;
@@ -18,6 +18,24 @@ public class VoxelGrid : MonoBehaviour
     // store counts: how many sensor hits this voxel got
     private int[,,] counts;
 
+    void OnDrawGizmos()
+    {
+        Gizmos.color = Color.green;
+        Vector3 gridWorldSize = new Vector3(sizeX, sizeY, sizeZ) * voxelSize;
+        Vector3 center = origin + gridWorldSize / 2f;
+        Gizmos.DrawWireCube(center, gridWorldSize);
+    }
+    void Start()
+    {
+        Vector3 gridWorldSize = new Vector3(sizeX, sizeY, sizeZ) * voxelSize;
+
+        // Align bottom of voxel grid with y=0 (ground plane)
+        origin = new Vector3(
+            transform.position.x - gridWorldSize.x / 2f,
+            0f,
+            transform.position.z - gridWorldSize.z / 2f
+        );
+    }
     public void Awake()
     {
         Allocate();

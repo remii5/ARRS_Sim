@@ -14,7 +14,7 @@ public class KinectSampler : MonoBehaviour
     public int sampleWidth = 160;  // e.g. 160x120 is coarse but reasonable
     public int sampleHeight = 120;
     [Tooltip("Maximum sampling distance (should match camera.farClipPlane).")]
-    public float maxDistance = 5f;
+    public float maxDistance = 2.21f;
     [Tooltip("Optional layer mask for sampling (only consider colliders on these layers)")]
     public LayerMask samplingMask = ~0; // default everything
     [Tooltip("Whether to use exact raycast hit point or approximate depth (first hit).")]

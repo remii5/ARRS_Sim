@@ -4,29 +4,33 @@ using System.Collections.Generic;
 [ExecuteInEditMode]
 public class CameraRingController : MonoBehaviour
 {
-
+    [Header("Ring Settings")]
     public int numCameras = 4;
     public float arenaWidth = 5f;
     public float arenaDepth = 3f;
     public float cameraHeight = 2.94f;
     public bool faceCenter = true;
+
+    [Header("Behavior")]
     public bool autoUpdate = true;
     public GameObject cameraPrefab;
 
+    [Header("Auto-Setup")]
+    public VoxelGrid voxelGrid;
+    public CoverageVisualizer coverageVisualizer;
 
     private List<Transform> cameraList = new List<Transform>();
     private bool needsUpdate = false;
 
     private void OnValidate()
     {
-        if (autoUpdate)
-        {
-            // Schedule update for next editor frame instead of immediate execution
-            needsUpdate = true;
 #if UNITY_EDITOR
+        if (!Application.isPlaying && autoUpdate)
+        {
+            needsUpdate = true;
             UnityEditor.EditorApplication.delayCall += DelayedUpdate;
-#endif
         }
+#endif
     }
 
 #if UNITY_EDITOR
@@ -41,38 +45,36 @@ public class CameraRingController : MonoBehaviour
 #endif
 
     /// <summary>
-    /// Regenerates or repositions all cameras to fit the rectangular ring.
+    /// Creates or repositions Kinect cameras along the rectangular ring.
     /// </summary>
     public void UpdateCameras()
     {
+        // Prevent regenerating while in Play mode
+        if (Application.isPlaying)
+            return;
+
         if (cameraPrefab == null)
         {
             Debug.LogWarning("Camera prefab not assigned to CameraRingController.");
             return;
         }
 
-        // Ensure correct number of cameras
-        while (cameraList.Count < numCameras)
+        // Remove any old generated cameras first
+        for (int i = transform.childCount - 1; i >= 0; i--)
         {
-            GameObject newCam = Instantiate(cameraPrefab, transform);
-            newCam.name = $"KinectCam_{cameraList.Count}";
-            cameraList.Add(newCam.transform);
+            Transform child = transform.GetChild(i);
+            if (child.name.StartsWith("KinectCam_"))
+                DestroyImmediate(child.gameObject);
         }
 
-        while (cameraList.Count > numCameras)
-        {
-            Transform camToRemove = cameraList[cameraList.Count - 1];
-            if (camToRemove != null)
-                DestroyImmediate(camToRemove.gameObject);
-            cameraList.RemoveAt(cameraList.Count - 1);
-        }
+        cameraList.Clear();
 
-        // Compute total perimeter and segment spacing
+        // Compute perimeter and spacing
         float perimeter = 2f * (arenaWidth + arenaDepth);
         float segmentLength = perimeter / numCameras;
         float distanceTraveled = 0f;
 
-        // Define the 4 rectangle sides (clockwise)
+        // Define the 4 corners (clockwise)
         Vector3[] corners = new Vector3[]
         {
             new Vector3(-arenaWidth/2f, cameraHeight, -arenaDepth/2f), // bottom-left
@@ -81,30 +83,51 @@ public class CameraRingController : MonoBehaviour
             new Vector3(-arenaWidth/2f, cameraHeight, arenaDepth/2f)   // top-left
         };
 
-        // Place cameras evenly along edges
+        List<KinectSampler> samplers = new List<KinectSampler>();
+
+        // Place cameras evenly around perimeter
         for (int i = 0; i < numCameras; i++)
         {
+            GameObject camObj = Instantiate(cameraPrefab, transform);
+            camObj.name = $"KinectCam_{i}";
+            cameraList.Add(camObj.transform);
+
             float t = distanceTraveled / perimeter;
             Vector3 pos = GetPointOnRectangle(corners, t);
-            cameraList[i].localPosition = pos;
+            camObj.transform.localPosition = pos;
 
             if (faceCenter)
-                cameraList[i].LookAt(transform.position);
+                camObj.transform.LookAt(transform.position);
+
+            // Auto-setup KinectSampler component
+            KinectSampler sampler = camObj.GetComponent<KinectSampler>();
+            if (sampler != null && voxelGrid != null)
+            {
+                sampler.voxelGrid = voxelGrid;
+                sampler.cam = camObj.GetComponent<Camera>();
+                samplers.Add(sampler);
+            }
 
             distanceTraveled += segmentLength;
+        }
+
+        // Auto-populate CoverageVisualizer
+        if (coverageVisualizer != null)
+        {
+            coverageVisualizer.samplers = samplers;
+            coverageVisualizer.voxelGrid = voxelGrid;
+            Debug.Log($"Auto-assigned {samplers.Count} samplers to CoverageVisualizer");
         }
     }
 
     /// <summary>
     /// Returns a point along the perimeter of a rectangle defined by 4 corners (clockwise).
-    /// t ∈ [0,1) represents normalized distance around perimeter.
     /// </summary>
     private Vector3 GetPointOnRectangle(Vector3[] corners, float t)
     {
         float totalLength = 0f;
         float[] edgeLengths = new float[4];
 
-        // Compute edge lengths
         for (int i = 0; i < 4; i++)
         {
             edgeLengths[i] = Vector3.Distance(corners[i], corners[(i + 1) % 4]);
@@ -127,5 +150,4 @@ public class CameraRingController : MonoBehaviour
 
         return corners[0];
     }
-
 }

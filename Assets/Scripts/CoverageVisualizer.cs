@@ -10,7 +10,7 @@ public class CoverageVisualizer : MonoBehaviour
     [Header("Sampling Control")]
     public bool autoSample = false;
     [Tooltip("Clear grid each sampling cycle")]
-    public bool clearBeforeSampling = true;
+    public bool clearBeforeSampling = false; // Set to FALSE to accumulate
     [Tooltip("If true, all samplers will perform one SampleStep per Update()")]
     public bool sampleEveryFrame = true;
 
@@ -21,6 +21,10 @@ public class CoverageVisualizer : MonoBehaviour
     [Tooltip("Minimum camera count to highlight voxel (1 means seen by at least one camera)")]
     public int minCountToShow = 1;
     public float maxDisplayScale = 1.0f;
+    
+    [Header("Runtime Rendering")]
+    [Tooltip("Enable to render voxels in Game view (uses GPU instancing)")]
+    public bool renderInGameView = true;
 
     void OnValidate()
     {
@@ -54,8 +58,17 @@ public class CoverageVisualizer : MonoBehaviour
             }
         }
     }
+    
+    void LateUpdate()
+    {
+        // Render voxels in Game view using GPU instancing
+        if (Application.isPlaying && renderInGameView)
+        {
+            DrawInstanced();
+        }
+    }
 
-    // Visualize voxels via gizmos or instanced mesh
+    // Visualize voxels via gizmos (Scene view only)
     void OnDrawGizmos()
     {
         if (!showGizmos || voxelGrid == null) return;

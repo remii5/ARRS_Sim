@@ -10,7 +10,6 @@ GameObject:
   m_Component:
   - component: {fileID: 3334280222963525006}
   - component: {fileID: 1233170725356438451}
-  - component: {fileID: 4323331011370449346}
   - component: {fileID: 7106473953068221971}
   - component: {fileID: -1266650347569064026}
   m_Layer: 0
@@ -86,14 +85,6 @@ Camera:
   m_OcclusionCulling: 1
   m_StereoConvergence: 10
   m_StereoSeparation: 0.022
---- !u!81 &4323331011370449346
-AudioListener:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 2952892477750814682}
-  m_Enabled: 1
 --- !u!114 &7106473953068221971
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -150,3 +141,13 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 592b158f035db4ec2958f6322ffe9031, type: 3}
   m_Name: 
   m_EditorClassIdentifier: '::'
+  cam: {fileID: 0}
+  voxelGrid: {fileID: 0}
+  sampleWidth: 160
+  sampleHeight: 120
+  maxDistance: 2.21
+  samplingMask:
+    serializedVersion: 2
+    m_Bits: 4294967295
+  useRaycast: 1
+  samplesPerFrame: 20000
