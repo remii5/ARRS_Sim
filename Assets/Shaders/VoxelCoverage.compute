@@ -1,0 +1,172 @@
+// VoxelCoverage.compute
+#pragma kernel ClearVoxels
+#pragma kernel UpdateVoxels
+#pragma kernel VisualizeTopDown
+
+RWTexture3D<float> VoxelGrid;
+RWTexture2D<float4> Result;
+
+float3 gridMin;
+float3 gridMax;
+int3 gridResolution;
+float decayRate;
+float deltaTime;
+
+// Camera data for detection
+float4 cameraPositions[8];
+float4 cameraForwards[8];
+int numCameras;
+
+// Object data (positions of objects to track)
+StructuredBuffer<float3> objectPositions;
+int numObjects;
+
+float3 VoxelToWorld(int3 voxelCoord)
+{
+    float3 normalized = (float3(voxelCoord) + 0.5) / float3(gridResolution);
+    return lerp(gridMin, gridMax, normalized);
+}
+
+[numthreads(8,8,8)]
+void ClearVoxels(uint3 id : SV_DispatchThreadID)
+{
+    if (any(id >= uint3(gridResolution)))
+        return;
+    
+    VoxelGrid[id] = 0.0;
+}
+
+[numthreads(8,8,8)]
+void UpdateVoxels(uint3 id : SV_DispatchThreadID)
+{
+    if (any(id >= uint3(gridResolution)))
+        return;
+    
+    float3 worldPos = VoxelToWorld(int3(id));
+    float currentValue = VoxelGrid[id];
+    
+    // Check if any object is near this voxel
+    bool occupied = false;
+    float minDist = 999999.0;
+    
+    for (int i = 0; i < numObjects; i++)
+    {
+        float3 objPos = objectPositions[i];
+        float dist = length(worldPos - objPos);
+        minDist = min(minDist, dist);
+        
+        // If within object radius, mark as occupied
+        if (dist < 0.3) // Adjust this threshold based on your object sizes
+        {
+            occupied = true;
+            break;
+        }
+    }
+    
+    // Also check visibility from cameras
+    bool visible = false;
+    for (int c = 0; c < numCameras && c < 8; c++)
+    {
+        float3 camPos = cameraPositions[c].xyz;
+        float3 camFwd = cameraForwards[c].xyz;
+        float3 toVoxel = worldPos - camPos;
+        float distance = length(toVoxel);
+        
+        // Check if voxel is in camera's view frustum
+        if (distance > 0.5 && distance < 10.0)
+        {
+            float3 dirToVoxel = normalize(toVoxel);
+            float dotProduct = dot(dirToVoxel, camFwd);
+            
+            // Within camera's field of view
+            if (dotProduct > 0.5) // ~60 degree FOV
+            {
+                visible = true;
+            }
+        }
+    }
+    
+    // Update voxel value with decay
+    if (occupied && visible)
+    {
+        // Strong accumulation when object is visible
+        VoxelGrid[id] = min(1.0, currentValue + deltaTime * 3.0);
+    }
+    else if (occupied)
+    {
+        // Weaker accumulation if not visible
+        VoxelGrid[id] = min(1.0, currentValue + deltaTime * 0.5);
+    }
+    else
+    {
+        // Decay over time
+        VoxelGrid[id] = max(0.0, currentValue - decayRate * deltaTime);
+    }
+}
+
+[numthreads(8,8,1)]
+void VisualizeTopDown(uint3 id : SV_DispatchThreadID)
+{
+    uint2 outputSize;
+    Result.GetDimensions(outputSize.x, outputSize.y);
+    
+    if (any(id.xy >= outputSize))
+        return;
+    
+    float2 uv = float2(id.xy) / float2(outputSize);
+    
+    // Project through the voxel grid vertically (top-down view)
+    float maxOccupancy = 0.0;
+    
+    for (int y = 0; y < gridResolution.y; y++)
+    {
+        int3 voxelCoord = int3(int((1.0 - uv.x) * gridResolution.x), y, int((1.0 - uv.y) * gridResolution.z));
+
+        
+        if (all(voxelCoord >= int3(0,0,0)) && all(voxelCoord < gridResolution))
+        {
+            float value = VoxelGrid[uint3(voxelCoord)];
+            maxOccupancy = max(maxOccupancy, value);
+        }
+    }
+    
+    // Heat map visualization
+    float3 color = float3(0, 0, 0);
+    
+    if (maxOccupancy > 0.01)
+    {
+        // Heat map: black -> blue -> cyan -> green -> yellow -> red -> white
+        if (maxOccupancy < 0.2)
+        {
+            // Black to blue
+            float t = maxOccupancy / 0.2;
+            color = float3(0, 0, t);
+        }
+        else if (maxOccupancy < 0.4)
+        {
+            // Blue to cyan
+            float t = (maxOccupancy - 0.2) / 0.2;
+            color = float3(0, t, 1);
+        }
+        else if (maxOccupancy < 0.6)
+        {
+            // Cyan to green
+            float t = (maxOccupancy - 0.4) / 0.2;
+            color = float3(0, 1, 1 - t);
+        }
+        else if (maxOccupancy < 0.8)
+        {
+            // Green to yellow
+            float t = (maxOccupancy - 0.6) / 0.2;
+            color = float3(t, 1, 0);
+        }
+        else
+        {
+            // Yellow to red to white
+            float t = (maxOccupancy - 0.8) / 0.2;
+            color = float3(1, 1 - t * 0.5, t);
+        }
+    }
+    
+    Result[id.xy] = float4(color, 1);
+}

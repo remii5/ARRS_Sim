@@ -1,0 +1,56 @@
+#pragma kernel CSMain
+
+#define MAX_CAMERAS 8
+
+RWTexture2D<float4> Result;
+Texture2D<float> DepthTextures0;
+Texture2D<float> DepthTextures1;
+Texture2D<float> DepthTextures2;
+Texture2D<float> DepthTextures3;
+Texture2D<float> DepthTextures4;
+Texture2D<float> DepthTextures5;
+Texture2D<float> DepthTextures6;
+Texture2D<float> DepthTextures7;
+int numCams;
+
+[numthreads(8,8,1)]
+void CSMain (uint3 id : SV_DispatchThreadID)
+{
+    int2 pix = int2(id.xy);
+    float visibility = 0.0;
+
+    for (int i = 0; i < MAX_CAMERAS; i++)
+    {
+        if (i >= numCams)
+            break;
+
+        float depthVal = 0.0;
+
+        // Use Load to fetch exact texel - safer across platforms
+        if (i == 0) depthVal = DepthTextures0.Load(int3(pix, 0));
+        else if (i == 1) depthVal = DepthTextures1.Load(int3(pix, 0));
+        else if (i == 2) depthVal = DepthTextures2.Load(int3(pix, 0));
+        else if (i == 3) depthVal = DepthTextures3.Load(int3(pix, 0));
+        else if (i == 4) depthVal = DepthTextures4.Load(int3(pix, 0));
+        else if (i == 5) depthVal = DepthTextures5.Load(int3(pix, 0));
+        else if (i == 6) depthVal = DepthTextures6.Load(int3(pix, 0));
+        else if (i == 7) depthVal = DepthTextures7.Load(int3(pix, 0));
+
+        // Decide whether this camera sees something at this pixel
+        // (adjust depth test thresholds if your depth maps store different ranges)
+        if (depthVal > 0.0 && depthVal < 1.0)
+            visibility += 1.0;
+    }
+
+    float4 color;
+    if (visibility < 0.5)
+        color = float4(1, 0, 0, 1);   // Red = no coverage
+    else if (visibility < 1.5)
+        color = float4(0, 1, 0, 1);   // Green = 1 camera
+    else if (visibility < 2.5)
+        color = float4(1, 1, 0, 1);   // Yellow = 2 cameras overlap
+    else
+        color = float4(1, 1, 1, 1);   // White = 3+ cameras overlap
+
+    Result[pix] = color;
+}

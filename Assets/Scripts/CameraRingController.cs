@@ -10,32 +10,124 @@ public class CameraRingController : MonoBehaviour
     public float arenaDepth = 3f;
     public float cameraHeight = 2.94f;
     public bool faceCenter = true;
-
-    [Header("Behavior")]
     public bool autoUpdate = true;
     public GameObject cameraPrefab;
 
-    [Header("Auto-Setup")]
-    public VoxelGrid voxelGrid;
-    public CoverageVisualizer coverageVisualizer;
-
-    private List<Transform> cameraList = new List<Transform>();
     private bool needsUpdate = false;
+    private List<Transform> cameraList = new List<Transform>();
+
+    [Header("Depth Coverage Settings")]
+    public ComputeShader coverageShader;
+    public Renderer outputPlane;
+    public Vector2Int textureSize = new Vector2Int(512, 512);
+
+    private List<DepthCameraRenderer> depthCameras = new List<DepthCameraRenderer>();
+    private RenderTexture resultTexture;
+
+    void Start()
+    {
+        // Only auto-setup in play mode
+        if (Application.isPlaying)
+        {
+            SetupResultTexture();
+        }
+    }
+
+    void OnEnable()
+    {
+        // Rebuild camera references when enabled (don't create new ones)
+        RebuildCameraReferences();
+    }
+
+    void RebuildCameraReferences()
+    {
+        // Clear and rebuild lists from existing children
+        cameraList.Clear();
+        depthCameras.Clear();
+
+        for (int i = 0; i < transform.childCount; i++)
+        {
+            Transform child = transform.GetChild(i);
+            if (child.name.StartsWith("KinectCam_"))
+            {
+                cameraList.Add(child);
+                DepthCameraRenderer depthCam = child.GetComponent<DepthCameraRenderer>();
+                if (depthCam != null)
+                    depthCameras.Add(depthCam);
+            }
+        }
+    }
+
+    void SetupResultTexture()
+    {
+        if (resultTexture != null)
+            resultTexture.Release();
+
+        resultTexture = new RenderTexture(textureSize.x, textureSize.y, 0, RenderTextureFormat.ARGB32);
+        resultTexture.enableRandomWrite = true;
+        resultTexture.Create();
+
+        if (outputPlane)
+        {
+#if UNITY_EDITOR
+            if (!Application.isPlaying)
+                outputPlane.sharedMaterial.mainTexture = resultTexture;
+            else
+#endif
+            outputPlane.material.mainTexture = resultTexture;
+        }
+    }
+
+    void Update()
+    {
+        // Only run compute shader in play mode
+        if (!Application.isPlaying)
+            return;
+
+        if (coverageShader == null || depthCameras.Count == 0)
+            return;
+
+        int kernel = coverageShader.FindKernel("CSMain");
+        coverageShader.SetTexture(kernel, "Result", resultTexture);
+
+        int camCount = Mathf.Min(depthCameras.Count, 8);
+
+        // Set all 8 texture slots (use first camera's texture as dummy for unused slots)
+        RenderTexture dummyTexture = depthCameras[0].depthTexture;
+
+        for (int i = 0; i < 8; i++)
+        {
+            RenderTexture texToSet = dummyTexture;
+
+            if (i < camCount && depthCameras[i] != null && depthCameras[i].depthTexture != null)
+                texToSet = depthCameras[i].depthTexture;
+
+            coverageShader.SetTexture(kernel, $"DepthTextures{i}", texToSet);
+        }
+
+        coverageShader.SetInt("numCams", camCount);
+        coverageShader.Dispatch(kernel, textureSize.x / 8, textureSize.y / 8, 1);
+    }
 
     private void OnValidate()
     {
-#if UNITY_EDITOR
-        if (!Application.isPlaying && autoUpdate)
+        if (autoUpdate && !needsUpdate)
         {
             needsUpdate = true;
+#if UNITY_EDITOR
+            // Remove any existing delayed calls before adding a new one
+            UnityEditor.EditorApplication.delayCall -= DelayedUpdate;
             UnityEditor.EditorApplication.delayCall += DelayedUpdate;
-        }
 #endif
+        }
     }
 
 #if UNITY_EDITOR
     private void DelayedUpdate()
     {
+        // Remove the delegate to prevent multiple calls
+        UnityEditor.EditorApplication.delayCall -= DelayedUpdate;
+        
         if (needsUpdate && this != null)
         {
             needsUpdate = false;
@@ -44,84 +136,114 @@ public class CameraRingController : MonoBehaviour
     }
 #endif
 
+    private void OnDisable()
+    {
+        CleanupResources();
+    }
+
+    private void OnDestroy()
+    {
+        CleanupResources();
+    }
+
+    private void CleanupResources()
+    {
+#if UNITY_EDITOR
+        UnityEditor.EditorApplication.delayCall -= DelayedUpdate;
+#endif
+
+        if (resultTexture != null)
+        {
+            resultTexture.Release();
+            resultTexture = null;
+        }
+    }
+
     /// <summary>
-    /// Creates or repositions Kinect cameras along the rectangular ring.
+    /// Regenerates or repositions all cameras to fit the rectangular ring.
     /// </summary>
     public void UpdateCameras()
     {
-        // Prevent regenerating while in Play mode
-        if (Application.isPlaying)
-            return;
-
         if (cameraPrefab == null)
         {
             Debug.LogWarning("Camera prefab not assigned to CameraRingController.");
             return;
         }
 
-        // Remove any old generated cameras first
-        for (int i = transform.childCount - 1; i >= 0; i--)
+        // Remove excess cameras first
+        while (cameraList.Count > numCameras)
         {
-            Transform child = transform.GetChild(i);
-            if (child.name.StartsWith("KinectCam_"))
-                DestroyImmediate(child.gameObject);
+            int last = cameraList.Count - 1;
+            if (cameraList[last] != null)
+            {
+#if UNITY_EDITOR
+                if (!Application.isPlaying)
+                    DestroyImmediate(cameraList[last].gameObject);
+                else
+#endif
+                Destroy(cameraList[last].gameObject);
+            }
+            cameraList.RemoveAt(last);
+            if (last < depthCameras.Count)
+                depthCameras.RemoveAt(last);
         }
 
-        cameraList.Clear();
+        // Add missing cameras
+        while (cameraList.Count < numCameras)
+        {
+            GameObject newCam = null;
+#if UNITY_EDITOR
+            if (!Application.isPlaying)
+                newCam = (GameObject)UnityEditor.PrefabUtility.InstantiatePrefab(cameraPrefab, transform);
+            else
+#endif
+            newCam = Instantiate(cameraPrefab, transform);
 
-        // Compute perimeter and spacing
+            newCam.name = $"KinectCam_{cameraList.Count}";
+
+            // Ensure it has a DepthCameraRenderer
+            DepthCameraRenderer depthCam = newCam.GetComponent<DepthCameraRenderer>();
+            if (depthCam == null)
+                depthCam = newCam.AddComponent<DepthCameraRenderer>();
+
+            // Assign RenderTexture and configure
+            depthCam.InitializeDepthTexture(textureSize.x, textureSize.y);
+
+            cameraList.Add(newCam.transform);
+            depthCameras.Add(depthCam);
+        }
+
+        // Position all cameras
         float perimeter = 2f * (arenaWidth + arenaDepth);
         float segmentLength = perimeter / numCameras;
         float distanceTraveled = 0f;
 
-        // Define the 4 corners (clockwise)
         Vector3[] corners = new Vector3[]
         {
-            new Vector3(-arenaWidth/2f, cameraHeight, -arenaDepth/2f), // bottom-left
-            new Vector3(arenaWidth/2f, cameraHeight, -arenaDepth/2f),  // bottom-right
-            new Vector3(arenaWidth/2f, cameraHeight, arenaDepth/2f),   // top-right
-            new Vector3(-arenaWidth/2f, cameraHeight, arenaDepth/2f)   // top-left
+            new Vector3(-arenaWidth/2f, cameraHeight, -arenaDepth/2f),
+            new Vector3(arenaWidth/2f, cameraHeight, -arenaDepth/2f),
+            new Vector3(arenaWidth/2f, cameraHeight, arenaDepth/2f),
+            new Vector3(-arenaWidth/2f, cameraHeight, arenaDepth/2f)
         };
 
-        List<KinectSampler> samplers = new List<KinectSampler>();
-
-        // Place cameras evenly around perimeter
-        for (int i = 0; i < numCameras; i++)
+        for (int i = 0; i < numCameras && i < cameraList.Count; i++)
         {
-            GameObject camObj = Instantiate(cameraPrefab, transform);
-            camObj.name = $"KinectCam_{i}";
-            cameraList.Add(camObj.transform);
+            if (cameraList[i] == null) continue;
 
             float t = distanceTraveled / perimeter;
             Vector3 pos = GetPointOnRectangle(corners, t);
-            camObj.transform.localPosition = pos;
+            cameraList[i].localPosition = pos;
 
             if (faceCenter)
-                camObj.transform.LookAt(transform.position);
-
-            // Auto-setup KinectSampler component
-            KinectSampler sampler = camObj.GetComponent<KinectSampler>();
-            if (sampler != null && voxelGrid != null)
-            {
-                sampler.voxelGrid = voxelGrid;
-                sampler.cam = camObj.GetComponent<Camera>();
-                samplers.Add(sampler);
-            }
+                cameraList[i].LookAt(transform.position);
 
             distanceTraveled += segmentLength;
-        }
-
-        // Auto-populate CoverageVisualizer
-        if (coverageVisualizer != null)
-        {
-            coverageVisualizer.samplers = samplers;
-            coverageVisualizer.voxelGrid = voxelGrid;
-            Debug.Log($"Auto-assigned {samplers.Count} samplers to CoverageVisualizer");
         }
     }
 
     /// <summary>
     /// Returns a point along the perimeter of a rectangle defined by 4 corners (clockwise).
+    /// t ∈ [0,1) represents normalized distance around perimeter.
     /// </summary>
     private Vector3 GetPointOnRectangle(Vector3[] corners, float t)
     {

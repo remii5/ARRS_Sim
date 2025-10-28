@@ -11,7 +11,7 @@ GameObject:
   - component: {fileID: 3334280222963525006}
   - component: {fileID: 1233170725356438451}
   - component: {fileID: 7106473953068221971}
-  - component: {fileID: -1266650347569064026}
+  - component: {fileID: 7063001996192061825}
   m_Layer: 0
   m_Name: NFOV_Kinect
   m_TagString: KinectCamera
@@ -129,7 +129,7 @@ MonoBehaviour:
     m_VarianceClampScale: 0.9
     m_ContrastAdaptiveSharpening: 0
   m_Version: 2
---- !u!114 &-1266650347569064026
+--- !u!114 &7063001996192061825
 MonoBehaviour:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
@@ -138,16 +138,6 @@ MonoBehaviour:
   m_GameObject: {fileID: 2952892477750814682}
   m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 592b158f035db4ec2958f6322ffe9031, type: 3}
+  m_Script: {fileID: 11500000, guid: bc3c0b474ab6c4cd5975fac3f0552a4a, type: 3}
   m_Name: 
   m_EditorClassIdentifier: '::'
-  cam: {fileID: 0}
-  voxelGrid: {fileID: 0}
-  sampleWidth: 160
-  sampleHeight: 120
-  maxDistance: 2.21
-  samplingMask:
-    serializedVersion: 2
-    m_Bits: 4294967295
-  useRaycast: 1
-  samplesPerFrame: 20000
